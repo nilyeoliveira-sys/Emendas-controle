@@ -60,7 +60,7 @@ function topbar(tituloExtra) {
     </header>`;
 }
 
-function render() {
+async function render() {
   app.innerHTML = '';
   const rotas = {
     carregando: telaCarregando,
@@ -71,7 +71,7 @@ function render() {
     config: telaConfig,
     contas: telaContas,
   };
-  (rotas[state.rota] || telaLista)();
+  await (rotas[state.rota] || telaLista)();
   ligarNavegacaoComum();
 }
 
@@ -574,6 +574,10 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str ?? '';
   return div.innerHTML;
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 }
 
 carregarSessao();
