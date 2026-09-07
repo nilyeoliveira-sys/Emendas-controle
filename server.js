@@ -10,6 +10,7 @@ const usuariosRoutes = require('./src/routes/usuarios');
 const fasesRoutes = require('./src/routes/fases');
 const processosRoutes = require('./src/routes/processos');
 const anexosRoutes = require('./src/routes/anexos');
+const contasRoutes = require('./src/routes/contas');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -39,6 +40,7 @@ app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/fases', fasesRoutes);
 app.use('/api/processos', processosRoutes);
 app.use('/api/anexos', anexosRoutes);
+app.use('/api/contas', contasRoutes);
 
 // Qualquer rota nao-API cai no shell da SPA; o router do lado do cliente cuida do resto.
 app.get(/^\/(?!api\/).*/, (req, res) => {

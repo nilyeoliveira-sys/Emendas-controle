@@ -53,13 +53,14 @@ function topbar(tituloExtra) {
       <h1>Emendas &amp; Convênios ${tituloExtra ? `· ${tituloExtra}` : ''}</h1>
       <nav>
         <button class="btn secondary" data-rota="lista">Processos</button>
+        <button class="btn secondary" data-rota="contas">Contas a pagar</button>
         ${ehAdmin() ? '<button class="btn secondary" data-rota="config">Configurações</button>' : ''}
         <button class="btn danger" id="btn-sair">Sair</button>
       </nav>
     </header>`;
 }
 
-function render() {
+async function render() {
   app.innerHTML = '';
   const rotas = {
     carregando: telaCarregando,
@@ -68,8 +69,9 @@ function render() {
     lista: telaLista,
     detalhe: telaDetalhe,
     config: telaConfig,
+    contas: telaContas,
   };
-  (rotas[state.rota] || telaLista)();
+  await (rotas[state.rota] || telaLista)();
   ligarNavegacaoComum();
 }
 
@@ -404,10 +406,178 @@ async function telaConfig() {
   }
 }
 
+function mesAtualStr() {
+  const agora = new Date();
+  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function deslocarMes(mes, delta) {
+  const [ano, m] = mes.split('-').map(Number);
+  const data = new Date(ano, m - 1 + delta, 1);
+  return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function mesLabel(mes) {
+  const [ano, m] = mes.split('-').map(Number);
+  const data = new Date(ano, m - 1, 1);
+  const nome = data.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  return nome.charAt(0).toUpperCase() + nome.slice(1);
+}
+
+function dataParaInputDate(iso) {
+  if (!iso) return new Date().toISOString().slice(0, 10);
+  return iso.slice(0, 10);
+}
+
+async function telaContas() {
+  const mes = state.params.mes || mesAtualStr();
+  app.innerHTML = `${topbar('Contas a pagar')}<div class="container"><p class="aviso">Carregando contas…</p></div>`;
+  const { contas } = await api(`/contas?mes=${mes}`);
+
+  const totalMes = contas.reduce((soma, c) => soma + Number(c.valor || 0), 0);
+  const totalPago = contas.filter((c) => c.pago).reduce((soma, c) => soma + Number(c.valor_pago ?? c.valor ?? 0), 0);
+  const totalPendente = totalMes - contas.filter((c) => c.pago).reduce((soma, c) => soma + Number(c.valor || 0), 0);
+
+  app.innerHTML = `
+    ${topbar('Contas a pagar')}
+    <div class="container">
+      <div class="top-form" style="align-items:center">
+        <button class="btn secondary" id="mes-anterior">←</button>
+        <div style="flex:1;text-align:center;font-weight:600">${mesLabel(mes)}</div>
+        <button class="btn secondary" id="mes-proximo">→</button>
+      </div>
+
+      <div class="resumo-contas">
+        <div class="resumo-item">
+          <span class="aviso">Total do mês</span>
+          <strong>${formatarMoeda(totalMes)}</strong>
+        </div>
+        <div class="resumo-item">
+          <span class="aviso">Pago</span>
+          <strong style="color:#2fa84f">${formatarMoeda(totalPago)}</strong>
+        </div>
+        <div class="resumo-item">
+          <span class="aviso">Pendente</span>
+          <strong style="color:${totalPendente > 0 ? 'var(--danger)' : 'inherit'}">${formatarMoeda(totalPendente)}</strong>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Nova conta</h3>
+        <div id="erro-nova" class="erro"></div>
+        <form id="form-nova-conta">
+          <div class="top-form">
+            <input name="descricao" placeholder="Descrição (ex: Aluguel, Internet)" required />
+            <input name="valor" type="number" step="0.01" min="0" placeholder="Valor (R$)" required />
+          </div>
+          <div class="top-form">
+            <input name="dia_vencimento" type="number" min="1" max="31" placeholder="Dia do vencimento" />
+            <input name="banco" placeholder="Banco (opcional)" />
+          </div>
+          <button class="btn" type="submit">Adicionar conta</button>
+        </form>
+      </div>
+
+      <div class="lista-processos">
+        ${contas.length === 0 ? '<p class="aviso">Nenhuma conta cadastrada ainda.</p>' : ''}
+        ${contas.map((c) => contaCardHtml(c)).join('')}
+      </div>
+    </div>`;
+
+  document.getElementById('mes-anterior').addEventListener('click', () => navegar('contas', { mes: deslocarMes(mes, -1) }));
+  document.getElementById('mes-proximo').addEventListener('click', () => navegar('contas', { mes: deslocarMes(mes, 1) }));
+
+  document.getElementById('form-nova-conta').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const dados = Object.fromEntries(new FormData(e.target));
+    dados.valor = Number(dados.valor || 0);
+    dados.dia_vencimento = dados.dia_vencimento ? Number(dados.dia_vencimento) : null;
+    try {
+      await api('/contas', { method: 'POST', body: dados });
+      navegar('contas', { mes });
+    } catch (err) {
+      document.getElementById('erro-nova').textContent = err.message;
+    }
+  });
+
+  ligarAcoesContas(mes);
+}
+
+function contaCardHtml(c) {
+  return `
+    <div class="card conta-item ${c.pago ? 'paga' : ''}" data-id="${c.id}">
+      <div class="conta-topo">
+        <div>
+          <strong>${escapeHtml(c.descricao)}</strong>
+          <div class="aviso">
+            ${c.dia_vencimento ? `Vence dia ${c.dia_vencimento} · ` : ''}${formatarMoeda(c.valor)}
+            ${c.banco ? ` · ${escapeHtml(c.banco)}` : ''}
+          </div>
+        </div>
+        <span class="badge" style="background:${c.pago ? '#2fa84f' : '#ff9500'}">${c.pago ? 'Pago' : 'Pendente'}</span>
+      </div>
+
+      ${c.pago
+        ? `<div class="aviso" style="margin-top:10px">
+             Pago em ${formatarDataSimples(c.data_pagamento)}${c.banco_pagamento ? ` · ${escapeHtml(c.banco_pagamento)}` : ''}
+             ${c.valor_pago != null ? ` · ${formatarMoeda(c.valor_pago)}` : ''}
+           </div>
+           <button class="btn secondary" data-desfazer="${c.id}" style="margin-top:10px">Desfazer pagamento</button>`
+        : `<form class="form-pagar top-form" data-pagar="${c.id}" style="margin-top:10px">
+             <input type="date" name="data_pagamento" value="${dataParaInputDate(null)}" required />
+             <input name="banco" placeholder="Banco" value="${escapeHtml(c.banco || '')}" />
+             <input name="valor_pago" type="number" step="0.01" min="0" placeholder="Valor pago" value="${c.valor}" />
+             <button class="btn" type="submit">Marcar como pago</button>
+           </form>`}
+      <div style="margin-top:10px;display:flex;gap:8px">
+        <button class="btn secondary" data-excluir-conta="${c.id}">Excluir conta</button>
+      </div>
+    </div>`;
+}
+
+function formatarDataSimples(iso) {
+  if (!iso) return '';
+  const [ano, mes, dia] = iso.slice(0, 10).split('-');
+  return `${dia}/${mes}/${ano}`;
+}
+
+function ligarAcoesContas(mes) {
+  app.querySelectorAll('.form-pagar').forEach((form) => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = form.dataset.pagar;
+      const dados = Object.fromEntries(new FormData(form));
+      dados.mes_referencia = mes;
+      dados.valor_pago = dados.valor_pago ? Number(dados.valor_pago) : null;
+      await api(`/contas/${id}/pagar`, { method: 'POST', body: dados });
+      navegar('contas', { mes });
+    });
+  });
+
+  app.querySelectorAll('[data-desfazer]').forEach((el) => {
+    el.addEventListener('click', async () => {
+      await api(`/contas/${el.dataset.desfazer}/desfazer`, { method: 'POST', body: { mes_referencia: mes } });
+      navegar('contas', { mes });
+    });
+  });
+
+  app.querySelectorAll('[data-excluir-conta]').forEach((el) => {
+    el.addEventListener('click', async () => {
+      if (!confirm('Excluir esta conta? Ela deixará de aparecer nos próximos meses.')) return;
+      await api(`/contas/${el.dataset.excluirConta}`, { method: 'DELETE' });
+      navegar('contas', { mes });
+    });
+  });
+}
+
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str ?? '';
   return div.innerHTML;
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 }
 
 carregarSessao();
