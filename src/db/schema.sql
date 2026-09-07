@@ -53,3 +53,31 @@ CREATE TABLE IF NOT EXISTS anexos (
 CREATE INDEX IF NOT EXISTS idx_processos_fase ON processos(fase_atual_id);
 CREATE INDEX IF NOT EXISTS idx_historico_processo ON processo_historico(processo_id);
 CREATE INDEX IF NOT EXISTS idx_anexos_processo ON anexos(processo_id);
+
+CREATE TABLE IF NOT EXISTS contas_pagar (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  descricao TEXT NOT NULL,
+  valor REAL NOT NULL DEFAULT 0,
+  dia_vencimento INTEGER CHECK (dia_vencimento BETWEEN 1 AND 31),
+  banco TEXT,
+  categoria TEXT,
+  ativo INTEGER NOT NULL DEFAULT 1,
+  criado_por INTEGER REFERENCES usuarios(id),
+  criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS contas_pagamentos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conta_id INTEGER NOT NULL REFERENCES contas_pagar(id) ON DELETE CASCADE,
+  mes_referencia TEXT NOT NULL,
+  pago INTEGER NOT NULL DEFAULT 0,
+  data_pagamento TEXT,
+  banco TEXT,
+  valor_pago REAL,
+  usuario_id INTEGER REFERENCES usuarios(id),
+  atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(conta_id, mes_referencia)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contas_pagar_ativo ON contas_pagar(ativo);
+CREATE INDEX IF NOT EXISTS idx_contas_pagamentos_mes ON contas_pagamentos(mes_referencia);
